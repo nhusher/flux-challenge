@@ -89,7 +89,11 @@ wss.on('connection', function connection(ws) {
 
   function sendRandomWorld() {
     var world = worlds[Math.floor(Math.random()*worlds.length)];
-    ws.send(JSON.stringify(world));
+    try {
+      ws.send(JSON.stringify(world));
+    } catch(e) {
+      console.error(e);
+    }
   }
 
   function resetTimeout() {

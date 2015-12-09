@@ -6,14 +6,40 @@
 
 (enable-console-print!)
 
-(def app-state
-  (atom {:current-planet { :id -1 :name "an unknown world" }}))
+(def unknown-world {:id -1 :name "an unknown world"})
 
-(defn read [{:keys [state] :as env} key params]
+(def init-state
+  {:current-planet unknown-world
+   :sith           [{:id 100 :name "Nick" :homeworld "Boston" :apprentice 101 :master 99 }
+                    {:id 101 :name "Tristan" :homeworld "North Hero" :master 100 :apprentice 102 }
+                    {:loaded false}
+                    {:loaded false}
+                    {:loaded false}]})
+
+(def app-state (atom init-state))
+
+(defmulti read om/dispatch)
+
+(defmethod read :current-planet
+  [{:keys [state] :as env} key params]
   (let [st @state]
-    (if-let [[_ value] (find st key)]
-      {:value value}
-      {:value :not-found})))
+    (if-let [planet (:current-planet st)]
+      {:value planet}
+      {:value unknown-world})))
+
+(defn missing-sith-ids [ast state values]
+  (prn state)
+  (prn values)
+  (prn ast)
+  (let [siths (map (fn [path] (get-in state path)) values)]
+    (prn "CC" (into [] siths))
+    [{ :sith/by-id 100 }]))
+
+(defmethod read :sith
+  [{:keys [state ast] :as env} key params]
+  (let [st @state]
+    {:value (into [] (map #(get-in st %)) (get st key))
+     :missing (missing-sith-ids ast st (get st key))}))
 
 (defmulti mutate om/dispatch)
 
@@ -45,32 +71,53 @@
                          (str "Obi-Wan currently on " (or name "an unknown planet"))))))
 (def planet-display (om/factory PlanetDisplay))
 
-(defui SithTracker
+(defui SithItem
+       static om/Ident
+       (ident [this {:keys [id]}]
+              [:sith/by-id id])
        static om/IQuery
-       (query [this] [{:current-planet (om/get-query PlanetDisplay)}])
+       (query [this] [:id :name :homeworld :apprentice :master])
+
        Object
        (render [this]
-               (let [{:keys [current-planet]} (om/props this)]
-                 (prn current-planet)
+               (let [{:keys [name homeworld]} (om/props this)]
+                 (dom/li #js {:className "css-slot"}
+                         (dom/h3 nil name)
+                         (dom/h6 nil homeworld)))))
+
+(def sith-item (om/factory SithItem))
+
+(defui SithTracker
+       static om/IQuery
+       (query [this]
+              [[:current-planet (om/get-query PlanetDisplay)]
+               {:sith (om/get-query SithItem)}])
+       Object
+       (render [this]
+               (let [{:keys [current-planet sith]} (om/props this)]
                  (dom/div #js {:className "app-container"}
                           (dom/div #js {:className "css-root"}
                                    (planet-display current-planet)
-                                   (dom/div #js {:className "css-scrollable-list"}))))))
+                                   (dom/div #js {:className "css-scrollable-list"}
+                                            (dom/ul #js {:className "css-slots"}
+                                                    (map sith-item sith))))))))
 
-(def parser (om/parser {:read read :mutate mutate }))
+(def parser (om/parser {:read read :mutate mutate}))
+
 
 (def reconciler
   (om/reconciler
-    {:state  app-state
-     :parser parser }))
+    {:state  init-state
+     :parser parser}))
 
-(om/add-root! reconciler SithTracker (js/document.getElementById "app"))
+ (om/add-root! reconciler SithTracker (js/document.getElementById "app"))
 
-(defn handle-ws-message [e]
-  (let [planet (js->clj (js/JSON.parse (.-data e)) :keywordize-keys true)]
-    (om/transact! reconciler `[(planet/change ~planet)])
-    #_ (swap! app-state assoc :current-planet planet)))
 
-(defonce ws (doto (js/WebSocket. "ws://localhost:4000")
-              (.addEventListener "message" #(handle-ws-message %))))
-
+;(defn handle-ws-message [e]
+;  (let [planet (js->clj (js/JSON.parse (.-data e)) :keywordize-keys true)]
+;    (om/transact! reconciler `[(planet/change ~planet)])
+;    #_(swap! app-state assoc :current-planet planet)))
+;
+;(defonce ws (doto (js/WebSocket. "ws://localhost:4000")
+;              (.addEventListener "message" #(handle-ws-message %))))
+;
